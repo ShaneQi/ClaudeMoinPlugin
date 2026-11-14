@@ -1,0 +1,13 @@
+{
+  "name": "moinmoin",
+  "version": "0.1.1",
+  "description": "Read, search, and edit a MoinMoin 1.9 wiki over XML-RPC v2. Skills-only (no MCP server); wiki URL and credentials are stored in the plugin's config.json.",
+  "author": {
+    "name": "Shane"
+  },
+  "keywords": [
+    "moinmoin",
+    "wiki",
+    "xmlrpc"
+  ]
+}
