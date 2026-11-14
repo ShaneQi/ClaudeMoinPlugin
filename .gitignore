@@ -1,4 +1,3 @@
 .in_use/
-*.plugin
 .DS_Store
 __pycache__/
