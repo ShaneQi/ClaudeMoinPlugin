@@ -4,7 +4,10 @@
 Config resolution (first non-empty wins, per field):
   1. --url / --user / --password flags
   2. MOIN_URL / MOIN_USER / MOIN_PASSWORD environment variables
-  3. --config PATH, else <plugin root>/config.json  (keys: url, username, password)
+  3. --config PATH or MOIN_CONFIG, else the first existing of
+     ~/.config/moinmoin-plugin/config.json  (written by the plugin's SessionStart
+     hook from its userConfig options) and <plugin root>/config.json (legacy)
+     -- keys: url, username, password
 
 Auth: calls getAuthToken(user, password) once per invocation, then runs every
 call inside system.multicall prefixed by applyAuthToken(token). With no
@@ -22,7 +25,8 @@ import xmlrpc.client as xc
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN_ROOT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
-DEFAULT_CONFIG = os.path.join(PLUGIN_ROOT, "config.json")
+USER_CONFIG = os.path.join(os.path.expanduser("~"), ".config", "moinmoin-plugin", "config.json")
+LEGACY_CONFIG = os.path.join(PLUGIN_ROOT, "config.json")
 
 
 def die(msg):
@@ -31,7 +35,9 @@ def die(msg):
 
 
 def load_config(args):
-    path = args.config or os.environ.get("MOIN_CONFIG") or DEFAULT_CONFIG
+    path = args.config or os.environ.get("MOIN_CONFIG")
+    if not path:
+        path = next((p for p in (USER_CONFIG, LEGACY_CONFIG) if os.path.isfile(p)), USER_CONFIG)
     cfg = {}
     if os.path.isfile(path) and os.path.getsize(path) > 0:
         try:
@@ -43,7 +49,7 @@ def load_config(args):
     user = args.user or os.environ.get("MOIN_USER") or cfg.get("username", "")
     pw = args.password or os.environ.get("MOIN_PASSWORD") or cfg.get("password", "")
     if not url:
-        die("NOT_CONFIGURED: no wiki URL. Run the moinmoin-setup skill.")
+        die("NOT_CONFIGURED: no wiki URL. Set the plugin's options or run the moinmoin-setup skill.")
     return url, user, pw
 
 

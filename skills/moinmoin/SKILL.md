@@ -5,7 +5,7 @@ description: Operates Shane's MoinMoin wiki over XML-RPC v2 — reads, searches,
 
 # MoinMoin wiki operations
 
-All wiki access goes through the bundled stdlib-only CLI `scripts/moin.py` (in this skill's base directory). It reads the wiki URL and credentials from `config.json` at the plugin root (two directories above this skill), logs in with `getAuthToken`, and wraps every call in a multicall with `applyAuthToken`. Never print or echo the password.
+All wiki access goes through the bundled stdlib-only CLI `scripts/moin.py` (in this skill's base directory). It reads the wiki URL and credentials from `~/.config/moinmoin-plugin/config.json`, which the plugin's SessionStart hook writes from the plugin options (falling back to a legacy `config.json` at the plugin root), logs in with `getAuthToken`, and wraps every call in a multicall with `applyAuthToken`. Never print or echo the password.
 
 ```bash
 MOIN="python3 <this-skill-base-dir>/scripts/moin.py"
@@ -16,6 +16,7 @@ $MOIN check                       # connectivity + auth; run this first each ses
 
 - Output `NOT_CONFIGURED` → load and follow the **moinmoin-setup** skill, then retry.
 - `AUTH_FAILED` → credentials are wrong or changed; run moinmoin-setup to replace them.
+- Never read or print the config file; it holds the password.
 - `NETWORK` / proxy `403` / connection refused from the cloud sandbox → the wiki's domain is probably not on the cloud egress allowlist. If the user's computer is linked, copy the script and config there (stage nothing — write them with `device_bash` into the session's scratch home, outside `mnt/`) and run the same commands with `device_bash`; otherwise tell the user the domain must be added to the network allowlist in Claude settings (Settings → Capabilities / network access).
 
 ## Commands
