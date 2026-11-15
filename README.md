@@ -39,10 +39,13 @@ to the internet; use Cloud Run's HTTPS URL or a TLS reverse proxy.
 | `ACCESS_TOKEN` | required | Long random bearer token required by every MCP request, even with an anonymous wiki |
 | `ALLOW_WRITES` | `false` | Set exactly `true` to enable wiki mutations |
 | `PORT` | `8787` | HTTP port; Cloud Run supplies its own `PORT` |
-| `ALLOWED_HOSTS` | localhost and `127.0.0.1`, any port | Comma-separated MCP server hostnames (not wiki hostnames). Set the exact Cloud Run/custom hostname for remote access; `:*` allows any port |
 
 Standard proxy environment variables are honored for outbound wiki requests.
 Configure `SSL_CERT_FILE` if your wiki uses a private certificate authority.
+
+Host and Origin headers are not restricted by the application; SDK DNS
+rebinding protection is disabled. Bearer-token authentication is required
+regardless of the hostname. Use HTTPS and keep `ACCESS_TOKEN` secret.
 
 XML-RPC must be enabled on the wiki: remove `xmlrpc` from `actions_excluded`
 in `wikiconfig.py`. The wiki must be reachable from the container, including
@@ -124,8 +127,7 @@ docker compose -f compose.yml up -d --build
 # Or use the published ghcr.io/shaneqi/moinmoinmcp:latest image.
 ```
 
-Compose binds `127.0.0.1:8787`; terminate HTTPS in a reverse proxy, preserve
-the public `Host` header, and add that hostname to `ALLOWED_HOSTS` in `.env`.
+Compose binds `127.0.0.1:8787`; terminate HTTPS in a reverse proxy.
 The container is stateless and needs no volumes. New GHCR packages may be
 private: make the package public or authenticate Docker with `read:packages`.
 
@@ -190,8 +192,6 @@ gcloud run deploy "$SERVICE" --project "$PROJECT_ID" --region "$REGION" \
 
 SERVICE_URL=$(gcloud run services describe "$SERVICE" --project "$PROJECT_ID" \
   --region "$REGION" --format='value(status.url)')
-gcloud run services update "$SERVICE" --project "$PROJECT_ID" --region "$REGION" \
-  --update-env-vars "ALLOWED_HOSTS=${SERVICE_URL#https://}"
 curl "$SERVICE_URL/health"
 ```
 
@@ -199,8 +199,6 @@ curl "$SERVICE_URL/health"
 MCP clients can connect. **The application still requires `ACCESS_TOKEN` on
 every MCP request.** Health checks are intentionally public. If your org
 forbids public Cloud Run services, use an approved authenticated gateway.
-Only localhost MCP requests are accepted until `ALLOWED_HOSTS` is updated.
-For a custom domain, add its exact hostname too.
 
 For an anonymous wiki, omit the two wiki credential secrets and their
 bindings; keep `ACCESS_TOKEN`. Secret references above use `latest`; changing

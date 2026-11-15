@@ -22,7 +22,6 @@ class Settings:
     access_token: str
     allow_writes: bool = False
     port: int = 8787
-    allowed_hosts: tuple[str, ...] = ("localhost", "localhost:*", "127.0.0.1", "127.0.0.1:*")
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -43,16 +42,7 @@ class Settings:
         port = int(os.environ.get("PORT", "8787"))
         if not 1 <= port <= 65535:
             raise ValueError("PORT must be between 1 and 65535")
-        hosts = tuple(
-            host.strip()
-            for host in os.environ.get(
-                "ALLOWED_HOSTS", "localhost,localhost:*,127.0.0.1,127.0.0.1:*"
-            ).split(",")
-            if host.strip()
-        )
-        if not hosts:
-            raise ValueError("ALLOWED_HOSTS must contain at least one hostname")
-        return cls(url, username, password, token, writes == "true", port, hosts)
+        return cls(url, username, password, token, writes == "true", port)
 
 
 def endpoint(url: str) -> str:

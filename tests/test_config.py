@@ -12,7 +12,6 @@ def clean_env(monkeypatch):
         "ACCESS_TOKEN",
         "ALLOW_WRITES",
         "PORT",
-        "ALLOWED_HOSTS",
     ):
         monkeypatch.delenv(key, raising=False)
 
@@ -28,9 +27,7 @@ def test_environment_configuration(monkeypatch):
     monkeypatch.setenv("MOIN_USER", "user")
     monkeypatch.setenv("MOIN_PASSWORD", "password")
     monkeypatch.setenv("ALLOW_WRITES", "true")
-    monkeypatch.setenv("ALLOWED_HOSTS", "server.example, localhost:*")
     assert Settings.from_env().allow_writes
-    assert Settings.from_env().allowed_hosts == ("server.example", "localhost:*")
 
 
 @pytest.mark.parametrize(
@@ -44,7 +41,6 @@ def test_environment_configuration(monkeypatch):
         ("MOIN_PASSWORD", "missing-user", "both"),
         ("ALLOW_WRITES", "yes", "ALLOW_WRITES"),
         ("PORT", "0", "PORT"),
-        ("ALLOWED_HOSTS", "", "ALLOWED_HOSTS"),
     ],
 )
 def test_invalid_configuration_fails_at_startup(monkeypatch, key, value, message):

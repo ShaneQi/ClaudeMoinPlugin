@@ -56,17 +56,22 @@ def test_authentication_and_health(client, wiki, header):
     assert not wiki.calls
 
 
-def test_hosts_and_origins_are_checked(client):
-    headers = {**AUTH, "Accept": "application/json, text/event-stream"}
-    assert (
-        client.post("/mcp", headers={**headers, "Host": "evil.example"}, json={}).status_code == 421
-    )
-    assert (
-        client.post(
-            "/mcp", headers={**headers, "Origin": "https://evil.example"}, json={}
-        ).status_code
-        == 403
-    )
+def test_remote_hosts_and_origins_require_only_bearer_auth(client):
+    headers = {
+        "Accept": "application/json, text/event-stream",
+        "Host": "mcp.example.com",
+        "Origin": "https://client.example.com",
+    }
+    request = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "check_connection", "arguments": {}},
+    }
+    assert client.post("/mcp", headers=headers, json=request).status_code == 401
+    response = client.post("/mcp", headers={**headers, **AUTH}, json=request)
+    assert response.status_code == 200
+    assert not response.json()["result"].get("isError", False)
 
 
 def test_read_tools_use_authenticated_xmlrpc(client, wiki):

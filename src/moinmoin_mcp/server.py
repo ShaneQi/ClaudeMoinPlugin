@@ -62,8 +62,7 @@ def create_server(settings: Settings) -> FastMCP:
         stateless_http=True,
         json_response=True,
         transport_security=TransportSecuritySettings(
-            enable_dns_rebinding_protection=True,
-            allowed_hosts=list(settings.allowed_hosts),
+            enable_dns_rebinding_protection=False,
         ),
     )
 
