@@ -23,7 +23,7 @@ from starlette.requests import Request
 from starlette.responses import PlainTextResponse, Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from moinmoin_mcp.client import Moin, Settings, WikiError, jsonable
+from moinmoin_mcp.client import Moin, Settings, WikiError, jsonable, page_url
 
 logger = logging.getLogger(__name__)
 Revision = Annotated[int, Field(ge=1)]
@@ -57,7 +57,8 @@ def create_server(settings: Settings) -> FastMCP:
             "Operate a MoinMoin 1.9 wiki. Read pages before editing; put_page replaces the "
             "entire page. Use MoinMoin markup, not Markdown, and preserve #format, #acl and "
             "#pragma lines. Check page metadata for concurrent edits and read back after "
-            "writes. Confirm destructive operations with the user. Attachment content is base64."
+            "writes. Confirm destructive operations with the user. Attachment content is base64. "
+            "Use the returned url fields to give the user links to relevant wiki pages."
         ),
         stateless_http=True,
         json_response=True,
@@ -104,12 +105,15 @@ def create_server(settings: Settings) -> FastMCP:
         if not settings.allow_writes:
             raise ToolError("WRITES_DISABLED: set ALLOW_WRITES=true on the server to enable writes")
 
-    async def write(method: str, *params: Any) -> dict[str, Any]:
+    def page_details(page: str, version: int | None = None) -> dict[str, str]:
+        return {"page": page, "url": page_url(settings.url, page, version)}
+
+    async def write(method: str, page: str, *params: Any) -> dict[str, Any]:
         require_writes()
-        result = await rpc(bool, method, *params)
+        result = await rpc(bool, method, page, *params)
         if result is not True:
             raise ToolError(f"WRITE_FAILED: {method} did not confirm success")
-        return {"ok": True}
+        return {"ok": True, **page_details(page)}
 
     async def health(request: Request) -> Response:
         return PlainTextResponse("ok")
@@ -128,31 +132,34 @@ def create_server(settings: Settings) -> FastMCP:
         }
 
     @tool()
-    async def get_page(page: str, version: Revision | None = None) -> str:
+    async def get_page(page: str, version: Revision | None = None) -> dict[str, str]:
         """Read raw MoinMoin markup, optionally at a specific revision."""
-        return (
+        text = (
             await rpc(str, "getPageVersion", page, version)
             if version
             else await rpc(str, "getPage", page)
         )
+        return {**page_details(page, version), "text": text}
 
     @tool()
-    async def get_page_html(page: str, version: Revision | None = None) -> str:
+    async def get_page_html(page: str, version: Revision | None = None) -> dict[str, str]:
         """Read rendered HTML, optionally at a specific revision."""
-        return (
+        html = (
             await rpc(str, "getPageHTMLVersion", page, version)
             if version
             else await rpc(str, "getPageHTML", page)
         )
+        return {**page_details(page, version), "html": html}
 
     @tool()
     async def get_page_info(page: str, version: Revision | None = None) -> dict[str, Any]:
         """Get page author, lastModified and version; use before and after edits."""
-        return (
+        info = (
             await rpc(dict[str, Any], "getPageInfoVersion", page, version)
             if version
             else await rpc(dict[str, Any], "getPageInfo", page)
         )
+        return {**info, **page_details(page, version)}
 
     @tool(writes=True, destructive=True)
     async def put_page(page: str, text: str) -> dict[str, Any]:
@@ -160,12 +167,16 @@ def create_server(settings: Settings) -> FastMCP:
         return await write("putPage", page, text)
 
     @tool()
-    async def list_pages(prefix: str | None = None, include_system: bool = False) -> list[str]:
+    async def list_pages(
+        prefix: str | None = None, include_system: bool = False
+    ) -> list[dict[str, str]]:
         """List sorted wiki page names, optionally limited to a prefix."""
         options: dict[str, Any] = {"include_system": include_system}
         if prefix:
             options["prefix"] = prefix
-        return sorted(await rpc(list[str], "getAllPagesEx", options))
+        return [
+            page_details(page) for page in sorted(await rpc(list[str], "getAllPagesEx", options))
+        ]
 
     @tool()
     async def search_pages(
@@ -182,7 +193,14 @@ def create_server(settings: Settings) -> FastMCP:
             False,
             False,
         )
-        return [{"page": row[0], "context": row[1]} for row in rows[:limit]]
+        return [
+            {
+                **page_details(row[0]),
+                "context": row[1],
+                "url": row[2] if len(row) > 2 and row[2] else page_url(settings.url, row[0]),
+            }
+            for row in rows[:limit]
+        ]
 
     @tool()
     async def recent_changes(
@@ -190,12 +208,20 @@ def create_server(settings: Settings) -> FastMCP:
     ) -> list[dict[str, Any]]:
         """List changes since the given number of days ago (UTC)."""
         since = dt.datetime.now(dt.UTC).replace(tzinfo=None) - dt.timedelta(days=days)
-        return await rpc(list[dict[str, Any]], "getRecentChanges", xc.DateTime(since))
+        changes = await rpc(list[dict[str, Any]], "getRecentChanges", xc.DateTime(since))
+        return [{**change, **page_details(change["name"])} for change in changes]
 
     @tool()
     async def list_links(page: str) -> list[dict[str, Any]]:
         """List a page's outgoing links."""
-        return await rpc(list[dict[str, Any]], "listLinks", page)
+        links = await rpc(list[dict[str, Any]], "listLinks", page)
+        return [
+            {
+                **link,
+                "url": link["name"] if link["type"] == 1 else page_url(settings.url, link["name"]),
+            }
+            for link in links
+        ]
 
     @tool()
     async def get_diff(
@@ -206,12 +232,17 @@ def create_server(settings: Settings) -> FastMCP:
         data = result.pop("diff", None)
         if not isinstance(data, bytes):
             raise ToolError("INVALID_RESPONSE: getDiff did not return a binary diff")
-        return {**result, "diff_base64": base64.b64encode(data).decode("ascii")}
+        return {
+            **result,
+            **page_details(page, to_revision),
+            "diff_base64": base64.b64encode(data).decode("ascii"),
+        }
 
     @tool(writes=True, destructive=True)
     async def rename_page(page: str, new_name: str) -> dict[str, Any]:
         """Rename a page. Confirm this change with the user first."""
-        return await write("renamePage", page, new_name)
+        result = await write("renamePage", page, new_name)
+        return {**result, **page_details(new_name)}
 
     @tool(writes=True, destructive=True)
     async def revert_page(page: str, revision: Revision) -> dict[str, Any]:
@@ -219,15 +250,20 @@ def create_server(settings: Settings) -> FastMCP:
         return await write("revertPage", page, str(revision))
 
     @tool()
-    async def list_attachments(page: str) -> list[str]:
+    async def list_attachments(page: str) -> dict[str, Any]:
         """List attachment filenames on a page."""
-        return await rpc(list[str], "listAttachments", page)
+        attachments = await rpc(list[str], "listAttachments", page)
+        return {**page_details(page), "attachments": attachments}
 
     @tool()
     async def get_attachment(page: str, name: str) -> dict[str, str]:
         """Download an attachment as base64, without writing server-local files."""
         data = await rpc(bytes, "getAttachment", page, name)
-        return {"name": name, "content_base64": base64.b64encode(data).decode("ascii")}
+        return {
+            **page_details(page),
+            "name": name,
+            "content_base64": base64.b64encode(data).decode("ascii"),
+        }
 
     @tool(writes=True, destructive=True)
     async def put_attachment(page: str, name: str, content_base64: str) -> dict[str, Any]:

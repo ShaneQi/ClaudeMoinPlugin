@@ -8,7 +8,7 @@ import urllib.request
 import xmlrpc.client as xc
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 if TYPE_CHECKING:
     from _typeshed import SizedBuffer
@@ -58,6 +58,15 @@ def endpoint(url: str) -> str:
     query = [(key, value) for key, value in parse_qsl(parts.query) if key != "action"]
     query.append(("action", "xmlrpc2"))
     return urlunsplit(parts._replace(path=parts.path or "/", query=urlencode(query)))
+
+
+def page_url(url: str, page: str, version: int | None = None) -> str:
+    parts = urlsplit(url)
+    path = parts.path.rstrip("/") + "/" + quote(page, safe="/")
+    query = [(key, value) for key, value in parse_qsl(parts.query) if key not in ("action", "rev")]
+    if version is not None:
+        query.extend((("action", "recall"), ("rev", str(version))))
+    return urlunsplit(parts._replace(path=path, query=urlencode(query), fragment=""))
 
 
 class UrllibTransport(xc.Transport):
