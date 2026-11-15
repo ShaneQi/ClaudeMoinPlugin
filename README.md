@@ -41,9 +41,8 @@ to the internet; use Cloud Run's HTTPS URL or a TLS reverse proxy.
 | `PORT` | `8787` | HTTP port; Cloud Run supplies its own `PORT` |
 | `ALLOWED_HOSTS` | localhost and `127.0.0.1`, any port | Comma-separated MCP server hostnames (not wiki hostnames). Set the exact Cloud Run/custom hostname for remote access; `:*` allows any port |
 
-No plugin configuration files or host credentials are read. Standard proxy
-environment variables are honored for outbound wiki requests. Configure
-`SSL_CERT_FILE` if your wiki uses a private certificate authority.
+Standard proxy environment variables are honored for outbound wiki requests.
+Configure `SSL_CERT_FILE` if your wiki uses a private certificate authority.
 
 XML-RPC must be enabled on the wiki: remove `xmlrpc` from `actions_excluded`
 in `wikiconfig.py`. The wiki must be reachable from the container, including
@@ -111,7 +110,7 @@ Read before editing: `put_page` replaces the entire page. Preserve `#format`,
 `#acl` and `#pragma` lines, check metadata for concurrent edits, confirm
 destructive changes, and read back after writing. There is no atomic
 compare-and-swap protection against simultaneous wiki edits. See the
-[MoinMoin markup guide](skills/moinmoin/references/moin-syntax.md).
+[MoinMoin markup guide](docs/moin-syntax.md).
 
 Attachment data is base64, not a local filesystem path. MCP requests are
 limited to 4 MiB by the SDK (base64 overhead counts); use the wiki directly
@@ -253,16 +252,6 @@ To use another project/region, set repository Actions variables
 `GAR_PROJECT_ID`, `GAR_REGISTRY`, `GAR_REPOSITORY`, `CLOUD_RUN_REGION` and use
 matching values in bootstrap commands. Configure registry cleanup to retain
 recent multi-architecture images rather than deleting all untagged manifests.
-
-## Migration from the plugin
-
-The legacy plugin files remain for compatibility, but are not included in
-the container or imported by the server. Disable/uninstall the old plugin
-in your client to avoid duplicate wiki capabilities, deploy this server,
-and add the HTTP MCP connection instead. Set wiki credentials in the
-server environment/Secret Manager; plugin options and `MOIN_CONFIG` are
-not used by MCP. After migrating, remove the old plaintext
-`~/.config/moinmoin-plugin/config.json` yourself if no longer needed.
 
 ## Validation
 
