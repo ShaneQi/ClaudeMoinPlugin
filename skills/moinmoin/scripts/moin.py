@@ -4,9 +4,9 @@
 Config resolution (first non-empty wins, per field):
   1. --url / --user / --password flags
   2. MOIN_URL / MOIN_USER / MOIN_PASSWORD environment variables
-  3. --config PATH or MOIN_CONFIG, else ~/.config/moinmoin-plugin/config.json
-     (written by the plugin's SessionStart hook from its userConfig options;
-     keys: url, username, password)
+  3. --config PATH, else MOIN_CONFIG (exported by the plugin's SessionStart hook,
+     which writes the userConfig options to the plugin's data directory), else
+     ~/.config/moinmoin-plugin/config.json  -- keys: url, username, password
 
 Auth: calls getAuthToken(user, password) once per invocation, then runs every
 call inside system.multicall prefixed by applyAuthToken(token). With no
@@ -45,7 +45,10 @@ def load_config(args):
     user = args.user or os.environ.get("MOIN_USER") or cfg.get("username", "")
     pw = args.password or os.environ.get("MOIN_PASSWORD") or cfg.get("password", "")
     if not url:
-        die("NOT_CONFIGURED: no wiki URL. Set the moinmoin plugin's options.")
+        hint = ("config file has no URL" if os.path.isfile(path)
+                else "MOIN_CONFIG not set, so the plugin's SessionStart hook didn't hand over the options"
+                if not (args.config or os.environ.get("MOIN_CONFIG")) else f"{path} not found")
+        die(f"NOT_CONFIGURED: no wiki URL ({hint}). Set the moinmoin plugin's options.")
     return url, user, pw
 
 

@@ -1,6 +1,6 @@
 {
   "name": "moinmoin",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Read, search, and edit a MoinMoin 1.9 wiki over XML-RPC v2. Skills-only (no MCP server); the wiki URL and credentials are set as plugin options and handed to the CLI by a SessionStart hook.",
   "author": {
     "name": "Shane"

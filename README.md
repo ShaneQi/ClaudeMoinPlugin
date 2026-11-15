@@ -22,7 +22,9 @@ Claude Code then asks for the wiki URL, username and password; change them later
 
 The wiki URL, username and password are plugin options (`userConfig` in `.claude-plugin/plugin.json`). Claude Code asks for them when the plugin is enabled; the password is marked sensitive, so it is masked and kept in the system credential store rather than in `settings.json`.
 
-Commands Claude runs through Bash don't receive plugin options, so at the start of each session `hooks/write_config.py` copies them to `~/.config/moinmoin-plugin/config.json` (mode 0600), which `moin.py` reads. The hook prints nothing, so the password never enters Claude's context. That file is plain text on disk, readable only by your user.
+Commands Claude runs through Bash don't receive plugin options, so at the start of each session `hooks/write_config.py` writes them to `config.json` (mode 0600) in the plugin's data directory (`$CLAUDE_PLUGIN_DATA`, else `~/.config/moinmoin-plugin`) and exports `MOIN_CONFIG` with that path through `$CLAUDE_ENV_FILE`, so `moin.py` finds it wherever the client keeps plugin data. Only the path is exported, not the password. The hook prints nothing, so the password never enters Claude's context. It also writes a `status.json` (no secrets) that the `moinmoin-check` skill uses to explain failures.
+
+Options are stored per machine by the client and aren't synced between devices or into cloud sessions; set them on each machine you use.
 
 Other ways to configure, in order of precedence: `--url/--user/--password` flags, `MOIN_URL`/`MOIN_USER`/`MOIN_PASSWORD` env vars, `--config PATH`/`MOIN_CONFIG`.
 

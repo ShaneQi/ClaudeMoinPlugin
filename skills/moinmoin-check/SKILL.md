@@ -11,7 +11,13 @@ Run the check with the configured settings only — no `--url/--user/--password`
 python3 <this-skill-base-dir>/../moinmoin/scripts/moin.py check
 ```
 
-Never read or print `~/.config/moinmoin-plugin/config.json`; it holds the password.
+Never read or print the config file (`$MOIN_CONFIG`, `config.json`); it holds the password.
+
+If the check fails with `NOT_CONFIGURED` or `AUTH_FAILED`, also read the hook's status file, which holds no secrets: `${CLAUDE_PLUGIN_DATA}/status.json`, or `~/.config/moinmoin-plugin/status.json` if that path doesn't exist. It records when the SessionStart hook last ran (`hook_ran_at`), which options it received (`url_set`, `username_set`, `password_set`), and whether it exported `MOIN_CONFIG` for Bash commands.
+
+- No status file → the hook didn't run in this client or session. Options set during this session apply from the next one; if a new session still has no status file, this client doesn't run plugin hooks.
+- `url_set: false` (or `password_set: false` with a username) → the hook ran but this client didn't pass the option. Ask the user to set the plugin's options again.
+- `exported_MOIN_CONFIG: false` with a written config → this client gave the hook no env file; `moin.py --config <config_path> check` works as a workaround.
 
 ## Report
 
@@ -21,7 +27,7 @@ On failure, report one line per the table and what to fix:
 
 | Output | Meaning | Fix |
 |---|---|---|
-| `NOT_CONFIGURED` | No wiki URL set | Set the plugin's options (Claude Code asks for them when the plugin is enabled). Options set during this session apply from the next session. |
+| `NOT_CONFIGURED` | No wiki URL reached the script (the message says why) | Set the plugin's options (Claude Code asks for them when the plugin is enabled). Options set during this session apply from the next session. |
 | `AUTH_FAILED` | Username or password rejected; "No password is set" means the password option is empty | Correct the username or password in the plugin's options, then start a new session. |
 | `NOT_XMLRPC` | The URL answered, but not with XML-RPC | Check the URL is the wiki's base URL (e.g. `https://wiki.example.com/`). If it is, XML-RPC is disabled: remove `xmlrpc` from `actions_excluded` in `wikiconfig.py`. |
 | `HTTP <code>` | The server returned an HTTP error | 404: wrong URL. 401/403: the server or a proxy in front of the wiki refused the request. |

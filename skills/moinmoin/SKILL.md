@@ -5,7 +5,7 @@ description: Operates the user's MoinMoin wiki over XML-RPC v2 — reads, search
 
 # MoinMoin wiki operations
 
-All wiki access goes through the bundled stdlib-only CLI `scripts/moin.py` (in this skill's base directory). It reads the wiki URL and credentials from `~/.config/moinmoin-plugin/config.json`, which the plugin's SessionStart hook writes from the plugin options, logs in with `getAuthToken`, and wraps every call in a multicall with `applyAuthToken`. Never read or print that file, and never print or echo the password.
+All wiki access goes through the bundled stdlib-only CLI `scripts/moin.py` (in this skill's base directory). It reads the wiki URL and credentials from the config file named by `$MOIN_CONFIG`, which the plugin's SessionStart hook writes from the plugin options into the plugin's data directory, logs in with `getAuthToken`, and wraps every call in a multicall with `applyAuthToken`. Never read or print that config file, and never print or echo the password.
 
 ```bash
 MOIN="python3 <this-skill-base-dir>/scripts/moin.py"
@@ -14,7 +14,7 @@ $MOIN check                       # connectivity + auth; run this first each ses
 
 ## If not configured or unreachable
 
-- `NOT_CONFIGURED` or `AUTH_FAILED` → the plugin options (wiki URL, username, password) are missing or wrong. Tell the user to set them in the plugin's configuration (Claude Code asks for them when the plugin is enabled; URL and username can also be changed in `/config`). New values take effect from the next session. Don't ask the user to paste the password into the chat.
+- `NOT_CONFIGURED` or `AUTH_FAILED` → run the **moinmoin-check** skill to see why. In short: the plugin options (wiki URL, username, password) are missing or wrong. Tell the user to set them in the plugin's configuration (Claude Code asks for them when the plugin is enabled; URL and username can also be changed in `/config`). New values take effect from the next session. Don't ask the user to paste the password into the chat.
 - `FAULT` saying the method or action is unknown → XML-RPC is disabled on the wiki. Tell the user to remove `xmlrpc` from `actions_excluded` in `wikiconfig.py`.
 - `NOT_XMLRPC` or `HTTP <code>` → wrong URL, or XML-RPC disabled; the **moinmoin-check** skill explains each error.
 - `NETWORK` / proxy `403` / connection refused → the wiki isn't reachable from where Claude runs. In a cloud session, its domain probably isn't on the network allowlist: tell the user to add it to the environment's allowed hosts.
