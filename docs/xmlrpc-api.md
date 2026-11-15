@@ -1,6 +1,6 @@
 # MoinMoin 1.9 XML-RPC v2 reference
 
-Endpoint: `<wiki base url>/?action=xmlrpc2`. Strings are UTF-8 (v2). Auth: `getAuthToken(user, password)` → token; then `system.multicall([{methodName:"applyAuthToken",params:[token]}, {methodName:..., params:[...]}])`. `moin.py` does this automatically; use `raw` for methods not wrapped.
+Endpoint: `<wiki base url>/?action=xmlrpc2`. Strings are UTF-8 (v2). Auth: `getAuthToken(user, password)` → token; then `system.multicall([{methodName:"applyAuthToken",params:[token]}, {methodName:..., params:[...]}])`. The MCP server handles authentication automatically. Arbitrary XML-RPC calls are not exposed.
 
 | Method | Params | Returns |
 |---|---|---|
