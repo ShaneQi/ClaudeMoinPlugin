@@ -6,6 +6,18 @@ Skills-only Claude plugin for operating a MoinMoin 1.9 wiki via XML-RPC v2. No M
 - `skills/moinmoin-check` — verifies the configured URL, username and password.
 - `hooks/` — a SessionStart hook that hands the plugin options to `moin.py`.
 
+## Install
+
+In Claude Code (2.1.275 or later):
+
+```
+/plugin install moinmoin --marketplace ShaneQi/ClaudeMoinPlugin
+```
+
+On older versions, add the marketplace first: `/plugin marketplace add ShaneQi/ClaudeMoinPlugin`, then `/plugin install moinmoin@claude-moin-plugin`.
+
+Claude Code then asks for the wiki URL, username and password; change them later with `/plugin configure moinmoin@claude-moin-plugin`. Start a new session afterwards so the hook picks them up, and ask Claude to check the wiki connection.
+
 ## Configuration
 
 The wiki URL, username and password are plugin options (`userConfig` in `.claude-plugin/plugin.json`). Claude Code asks for them when the plugin is enabled; the password is marked sensitive, so it is masked and kept in the system credential store rather than in `settings.json`.
