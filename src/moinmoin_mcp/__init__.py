@@ -1,0 +1,1 @@
+"""MoinMoin MCP server."""
