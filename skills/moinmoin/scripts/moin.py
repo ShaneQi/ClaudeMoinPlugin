@@ -4,7 +4,9 @@
 Config resolution (first non-empty wins, per field):
   1. --url / --user / --password flags
   2. MOIN_URL / MOIN_USER / MOIN_PASSWORD environment variables
-  3. --config PATH, else <plugin root>/config.json  (keys: url, username, password)
+  3. --config PATH or MOIN_CONFIG, else ~/.config/moinmoin-plugin/config.json
+     (written by the plugin's SessionStart hook from its userConfig options;
+     keys: url, username, password)
 
 Auth: calls getAuthToken(user, password) once per invocation, then runs every
 call inside system.multicall prefixed by applyAuthToken(token). With no
@@ -18,11 +20,11 @@ import datetime as dt
 import json
 import os
 import sys
+import urllib.error
+import xml.parsers.expat
 import xmlrpc.client as xc
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-PLUGIN_ROOT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
-DEFAULT_CONFIG = os.path.join(PLUGIN_ROOT, "config.json")
+DEFAULT_CONFIG = os.path.join(os.path.expanduser("~"), ".config", "moinmoin-plugin", "config.json")
 
 
 def die(msg):
@@ -43,7 +45,7 @@ def load_config(args):
     user = args.user or os.environ.get("MOIN_USER") or cfg.get("username", "")
     pw = args.password or os.environ.get("MOIN_PASSWORD") or cfg.get("password", "")
     if not url:
-        die("NOT_CONFIGURED: no wiki URL. Run the moinmoin-setup skill.")
+        die("NOT_CONFIGURED: no wiki URL. Set the moinmoin plugin's options.")
     return url, user, pw
 
 
@@ -84,7 +86,8 @@ class Moin:
         if user:
             tok = self.proxy.getAuthToken(user, pw)
             if not tok:
-                die("AUTH_FAILED: getAuthToken returned empty token (bad username/password?)")
+                die("AUTH_FAILED: getAuthToken returned empty token (bad username/password?)"
+                    + ("" if pw else " No password is set."))
             self.token = tok
 
     def call(self, method, *params):
@@ -151,7 +154,8 @@ def main():
         m = Moin(url, user, pw)
         c = a.cmd
         if c == "check":
-            out = {"endpoint": m.url, "authenticated": bool(m.token),
+            out = {"endpoint": m.url, "username": user or None, "password_set": bool(pw),
+                   "authenticated": bool(m.token),
                    "rpc_version": m.call("getRPCVersionSupported"),
                    "wiki": m.call("interwikiName")}
         elif c == "get":
@@ -208,6 +212,11 @@ def main():
         die(f"FAULT {e.faultCode}: {e.faultString}")
     except xc.ProtocolError as e:
         die(f"HTTP {e.errcode} {e.errmsg} at {e.url}")
+    except (xc.ResponseError, xml.parsers.expat.ExpatError):
+        die(f"NOT_XMLRPC: {endpoint(url)} did not return an XML-RPC response "
+            "(wrong URL, not a MoinMoin wiki, or XML-RPC disabled on the wiki)")
+    except urllib.error.HTTPError as e:
+        die(f"HTTP {e.code} {e.reason} at {endpoint(url)}")
     except OSError as e:
         die(f"NETWORK: {e}")
 

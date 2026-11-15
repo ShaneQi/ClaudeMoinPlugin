@@ -1,7 +1,7 @@
 {
   "name": "moinmoin",
-  "version": "0.1.1",
-  "description": "Read, search, and edit a MoinMoin 1.9 wiki over XML-RPC v2. Skills-only (no MCP server); wiki URL and credentials are stored in the plugin's config.json.",
+  "version": "0.2.0",
+  "description": "Read, search, and edit a MoinMoin 1.9 wiki over XML-RPC v2. Skills-only (no MCP server); the wiki URL and credentials are set as plugin options and handed to the CLI by a SessionStart hook.",
   "author": {
     "name": "Shane"
   },
@@ -9,5 +9,24 @@
     "moinmoin",
     "wiki",
     "xmlrpc"
-  ]
+  ],
+  "userConfig": {
+    "url": {
+      "type": "string",
+      "title": "Wiki URL",
+      "description": "Base URL of the MoinMoin wiki, e.g. https://wiki.example.com/",
+      "required": true
+    },
+    "username": {
+      "type": "string",
+      "title": "Username",
+      "description": "Wiki account to log in as. Leave empty for anonymous access."
+    },
+    "password": {
+      "type": "string",
+      "title": "Password",
+      "description": "Password for that wiki account.",
+      "sensitive": true
+    }
+  }
 }
