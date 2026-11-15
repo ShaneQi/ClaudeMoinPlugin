@@ -3,6 +3,7 @@
 Skills-only Claude plugin for operating a MoinMoin 1.9 wiki via XML-RPC v2. No MCP server.
 
 - `skills/moinmoin` — how Claude reads/searches/edits the wiki, plus `scripts/moin.py` (Python stdlib CLI).
+- `skills/moinmoin-check` — verifies the configured URL, username and password.
 - `hooks/` — a SessionStart hook that hands the plugin options to `moin.py`.
 
 ## Configuration

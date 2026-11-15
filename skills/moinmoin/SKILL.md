@@ -16,6 +16,7 @@ $MOIN check                       # connectivity + auth; run this first each ses
 
 - `NOT_CONFIGURED` or `AUTH_FAILED` → the plugin options (wiki URL, username, password) are missing or wrong. Tell the user to set them in the plugin's configuration (Claude Code asks for them when the plugin is enabled; URL and username can also be changed in `/config`). New values take effect from the next session. Don't ask the user to paste the password into the chat.
 - `FAULT` saying the method or action is unknown → XML-RPC is disabled on the wiki. Tell the user to remove `xmlrpc` from `actions_excluded` in `wikiconfig.py`.
+- `NOT_XMLRPC` or `HTTP <code>` → wrong URL, or XML-RPC disabled; the **moinmoin-check** skill explains each error.
 - `NETWORK` / proxy `403` / connection refused → the wiki isn't reachable from where Claude runs. In a cloud session, its domain probably isn't on the network allowlist: tell the user to add it to the environment's allowed hosts.
 
 ## Commands
