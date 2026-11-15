@@ -1,6 +1,6 @@
 import pytest
 
-from moinmoin_mcp.client import Settings, endpoint
+from moinmoin_mcp.client import Settings, endpoint, page_url
 
 
 @pytest.fixture(autouse=True)
@@ -65,3 +65,31 @@ def test_invalid_configuration_fails_at_startup(monkeypatch, key, value, message
 )
 def test_xmlrpc_endpoint(url, expected):
     assert endpoint(url) == expected
+
+
+@pytest.mark.parametrize(
+    ("base", "page", "version", "expected"),
+    [
+        ("https://wiki.example", "FrontPage", None, "https://wiki.example/FrontPage"),
+        (
+            "https://wiki.example/wiki/?action=xmlrpc2",
+            "Projects/Road map",
+            None,
+            "https://wiki.example/wiki/Projects/Road%20map",
+        ),
+        (
+            "https://wiki.example/wiki?lang=en&action=xmlrpc2&rev=99",
+            "Caf\u00e9/#?100%",
+            3,
+            "https://wiki.example/wiki/Caf%C3%A9/%23%3F100%25?lang=en&action=recall&rev=3",
+        ),
+        (
+            "https://wiki.example/wiki/",
+            "//other.example/Page",
+            None,
+            "https://wiki.example/wiki///other.example/Page",
+        ),
+    ],
+)
+def test_page_urls_preserve_wiki_base_and_encode_page_names(base, page, version, expected):
+    assert page_url(base, page, version) == expected

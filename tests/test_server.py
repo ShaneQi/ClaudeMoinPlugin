@@ -83,24 +83,91 @@ def test_read_tools_use_authenticated_xmlrpc(client, wiki):
         "authenticated": True,
         "writes_enabled": False,
     }
-    assert text(call(client, "get_page", {"page": "FrontPage", "version": 2})) == "= Wiki ="
-    assert "Wiki" in text(call(client, "get_page_html", {"page": "FrontPage"}))
+    page = call(client, "get_page", {"page": "FrontPage", "version": 2})
+    assert page.structuredContent == {
+        "page": "FrontPage",
+        "url": wiki.url + "/FrontPage?action=recall&rev=2",
+        "text": "= Wiki =",
+    }
+    html = call(client, "get_page_html", {"page": "FrontPage"})
+    assert html.structuredContent == {
+        "page": "FrontPage",
+        "url": wiki.url + "/FrontPage",
+        "html": "<h1>Wiki</h1>",
+    }
     info = call(client, "get_page_info", {"page": "FrontPage", "version": 1})
     assert info.structuredContent["version"] == 1
     assert info.structuredContent["lastModified"] == "2026-11-14T12:00:00"
+    assert info.structuredContent["url"] == wiki.url + "/FrontPage?action=recall&rev=1"
     pages = call(client, "list_pages", {"prefix": "A"})
-    assert pages.structuredContent == {"result": ["Alpha"]}
+    assert pages.structuredContent == {
+        "result": [{"page": "Alpha", "url": wiki.url + "/Alpha"}],
+    }
     search = call(client, "search_pages", {"query": "wiki", "titles": True, "limit": 1})
-    assert search.structuredContent == {"result": [{"page": "FrontPage", "context": "= Wiki ="}]}
-    assert not call(client, "recent_changes", {"days": 0.5}).isError
-    assert not call(client, "list_links", {"page": "FrontPage"}).isError
+    assert search.structuredContent == {
+        "result": [
+            {
+                "page": "FrontPage",
+                "context": "= Wiki =",
+                "url": "https://wiki.example/FrontPage",
+            }
+        ],
+    }
+    recent = call(client, "recent_changes", {"days": 0.5})
+    assert recent.structuredContent["result"][0]["url"] == wiki.url + "/FrontPage"
+    links = call(client, "list_links", {"page": "FrontPage"})
+    assert links.structuredContent["result"][0]["url"] == wiki.url + "/Alpha"
     diff = call(client, "get_diff", {"page": "FrontPage", "from_revision": 1})
     assert base64.b64decode(diff.structuredContent["diff_base64"]) == b"\x00diff"
+    assert diff.structuredContent["url"] == wiki.url + "/FrontPage"
     assert ("getPageVersion", ["FrontPage", 2]) in wiki.calls
     assert ("searchPagesEx", ["wiki", "title", 120, False, False, False]) in wiki.calls
     methods = [method for method, _ in wiki.calls]
     assert methods.count("getAuthToken") == methods.count("applyAuthToken")
     assert methods.count("getAuthToken") > 0
+
+
+@pytest.mark.parametrize(
+    ("row", "expected_url"),
+    [
+        (["Projects/Road map", "context"], None),
+        (["Projects/Road map", "context", ""], None),
+        (
+            ["Projects/Road map", "context", "https://public.example/Road%20map"],
+            "https://public.example/Road%20map",
+        ),
+    ],
+)
+def test_search_urls_use_wiki_url_or_encoded_fallback(client, wiki, monkeypatch, row, expected_url):
+    monkeypatch.setattr(Moin, "call", lambda *args: [row])
+    result = call(client, "search_pages", {"query": "Road"})
+    assert result.structuredContent == {
+        "result": [
+            {
+                "page": "Projects/Road map",
+                "context": "context",
+                "url": expected_url or wiki.url + "/Projects/Road%20map",
+            }
+        ],
+    }
+
+
+def test_external_link_urls_are_not_prefixed_with_wiki_url(client, monkeypatch):
+    monkeypatch.setattr(
+        Moin,
+        "call",
+        lambda *args: [{"name": "https://external.example/page", "type": 1}],
+    )
+    result = call(client, "list_links", {"page": "FrontPage"})
+    assert result.structuredContent["result"][0]["url"] == "https://external.example/page"
+
+
+def test_page_url_is_included_in_text_content_for_agents(client, wiki):
+    page = "Projects/Road map #1"
+    wiki.pages[page] = "Content"
+    result = call(client, "get_page", {"page": page})
+    assert result.structuredContent["url"] == wiki.url + "/Projects/Road%20map%20%231"
+    assert wiki.url + "/Projects/Road%20map%20%231" in text(result)
 
 
 @pytest.mark.parametrize(
@@ -124,22 +191,39 @@ def test_writes_and_binary_attachments_round_trip(wiki):
     with TestClient(
         create_app(replace(wiki.settings, allow_writes=True)), base_url="http://localhost"
     ) as client:
-        assert not call(
-            client, "put_page", {"page": "FrontPage", "text": "#format wiki\nNew"}
-        ).isError
-        assert text(call(client, "get_page", {"page": "FrontPage"})) == "#format wiki\nNew"
+        created = call(client, "put_page", {"page": "FrontPage", "text": "#format wiki\nNew"})
+        assert created.structuredContent == {
+            "ok": True,
+            "page": "FrontPage",
+            "url": wiki.url + "/FrontPage",
+        }
+        assert call(client, "get_page", {"page": "FrontPage"}).structuredContent["text"] == (
+            "#format wiki\nNew"
+        )
         data = base64.b64encode(b"\x00\xffattachment").decode()
         args = {"page": "FrontPage", "name": "data.bin"}
-        assert not call(client, "put_attachment", {**args, "content_base64": data}).isError
-        assert call(client, "get_attachment", args).structuredContent["content_base64"] == data
+        uploaded = call(client, "put_attachment", {**args, "content_base64": data})
+        assert uploaded.structuredContent["url"] == wiki.url + "/FrontPage"
+        downloaded = call(client, "get_attachment", args)
+        assert downloaded.structuredContent["content_base64"] == data
+        assert downloaded.structuredContent["url"] == wiki.url + "/FrontPage"
         assert call(client, "list_attachments", {"page": "FrontPage"}).structuredContent == {
-            "result": ["data.bin"]
+            "page": "FrontPage",
+            "url": wiki.url + "/FrontPage",
+            "attachments": ["data.bin"],
         }
-        assert not call(client, "delete_attachment", args).isError
+        deleted = call(client, "delete_attachment", args)
+        assert deleted.structuredContent["url"] == wiki.url + "/FrontPage"
         assert not wiki.attachments
-        assert not call(client, "rename_page", {"page": "FrontPage", "new_name": "NewPage"}).isError
+        renamed = call(client, "rename_page", {"page": "FrontPage", "new_name": "NewPage"})
+        assert renamed.structuredContent == {
+            "ok": True,
+            "page": "NewPage",
+            "url": wiki.url + "/NewPage",
+        }
         assert "FrontPage" not in wiki.pages
-        assert not call(client, "revert_page", {"page": "NewPage", "revision": 1}).isError
+        reverted = call(client, "revert_page", {"page": "NewPage", "revision": 1})
+        assert reverted.structuredContent["url"] == wiki.url + "/NewPage"
         assert wiki.pages["NewPage"] == "reverted"
         before = len(wiki.calls)
         invalid = call(client, "put_attachment", {**args, "content_base64": "%invalid"})
@@ -244,7 +328,12 @@ async def test_real_mcp_client_over_http(wiki):
                             tool for tool in tools if tool.name == "put_page"
                         ).annotations.destructiveHint
                         result = await session.call_tool("get_page", {"page": "FrontPage"})
-                        assert not result.isError and text(result) == "= Wiki ="
+                        assert not result.isError
+                        assert result.structuredContent == {
+                            "page": "FrontPage",
+                            "url": wiki.url + "/FrontPage",
+                            "text": "= Wiki =",
+                        }
                         assert session_id() is None
         finally:
             server.should_exit = True

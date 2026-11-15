@@ -93,16 +93,27 @@ curl https://YOUR-SERVICE.run.app/mcp \
 |---|---|
 | `check_connection` | Wiki RPC version, interwiki identity `[name, id]`, authentication and write mode |
 | `get_page`, `get_page_html`, `get_page_info` | Markup, HTML or metadata; optional `version` |
-| `list_pages` | Sorted names; optional `prefix`, `include_system` |
+| `list_pages` | Sorted `{page, url}` entries; optional `prefix`, `include_system` |
 | `search_pages` | Content/title search; `query`, optional `titles`, `limit` (1-500) |
 | `recent_changes` | Changes in the last `days` (default 7, maximum 3650), UTC |
 | `list_links` | Outgoing links |
 | `get_diff` | Moin's compressed binary delta as `diff_base64`, with revision/conflict metadata; not a textual unified diff |
-| `list_attachments`, `get_attachment` | Filenames and `{name, content_base64}` |
+| `list_attachments`, `get_attachment` | `{page, url, attachments}` and `{page, url, name, content_base64}` |
 | `put_page` | Replace/create a whole page with `page`, `text` |
 | `rename_page`, `revert_page` | Rename (`page`, `new_name`) or revert (`page`, `revision`) |
 | `put_attachment` | Upload `page`, `name`, `content_base64` |
 | `delete_attachment` | Delete `page`, `name` |
+
+Page-related results include a `url` agents can cite. `get_page` returns
+`{page, url, text}` and `get_page_html` returns `{page, url, html}` rather than
+plain strings. Metadata, diffs, recent changes and link entries also include
+URLs; search results preserve the URL supplied by the wiki, falling back to
+one built from `MOIN_URL`. Revision reads link to the requested revision.
+Successful writes return `{ok, page, url}`; renames link to the new page name.
+Attachment tools link to the containing page. Names with spaces, Unicode or
+reserved URL characters are percent-encoded, preserving subpage slashes.
+These structured output shapes replace the earlier plain-text/name-only
+responses; clients should refresh their tool schemas after updating.
 
 All five mutation tools return an explicit error without contacting the wiki
 unless `ALLOW_WRITES=true`. Unlike OFCloudMCP, there is no write preview:
