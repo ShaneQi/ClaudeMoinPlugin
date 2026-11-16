@@ -9,15 +9,17 @@ from dataclasses import replace
 import httpx
 import pytest
 import uvicorn
+from access_keys import ISSUER, OTHER_KEY, public_jwks, sign
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.types import CallToolResult
 from starlette.testclient import TestClient
 
+from moinmoin_mcp import access
 from moinmoin_mcp.client import Moin
 from moinmoin_mcp.server import create_app
 
-AUTH = {"Authorization": "Bearer test-access-token"}
+AUTH = {"Authorization": f"Bearer {sign()}"}
 
 
 @pytest.fixture
@@ -45,8 +47,73 @@ def text(result):
     return "\n".join(item.text for item in result.content if item.type == "text")
 
 
-@pytest.mark.parametrize("header", ["", "Bearer wrong", "Basic test-access-token", "Bearer \u00e9"])
-def test_authentication_and_health(client, wiki, header):
+def mcp_status(client, headers):
+    return client.post(
+        "/mcp",
+        headers={"Accept": "application/json, text/event-stream", **headers},
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+    )
+
+
+def tamper(token):
+    header, payload, signature = token.split(".")
+    other = sign(sub="attacker").split(".")[1]
+    return ".".join((header, other, signature))
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"Cf-Access-Jwt-Assertion": sign()},
+        {"Authorization": f"Bearer {sign()}"},
+        {"Authorization": f"bearer {sign(aud='test-aud-tag')}"},
+        {"Cf-Access-Jwt-Assertion": sign(nbf=int(time.time()) + 30)},  # within leeway
+    ],
+)
+def test_valid_access_tokens_are_accepted(client, headers):
+    response = mcp_status(client, headers)
+    assert response.status_code == 200, response.text
+
+
+def test_access_header_takes_precedence_over_authorization(client):
+    headers = {"Cf-Access-Jwt-Assertion": sign(), "Authorization": "Bearer junk"}
+    assert mcp_status(client, headers).status_code == 200
+    headers = {"Cf-Access-Jwt-Assertion": "junk", "Authorization": f"Bearer {sign()}"}
+    assert mcp_status(client, headers).status_code == 401
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        pytest.param(sign(exp=int(time.time()) - 120), id="expired"),
+        pytest.param(sign(exp=None), id="no-exp"),
+        pytest.param(sign(nbf=int(time.time()) + 600), id="nbf-future"),
+        pytest.param(sign(aud=["other-aud"]), id="wrong-aud"),
+        pytest.param(sign(iss="https://evil.cloudflareaccess.com"), id="wrong-iss"),
+        pytest.param(sign(kid="k2"), id="unknown-kid"),
+        pytest.param(sign(key=OTHER_KEY), id="other-key"),
+        pytest.param(tamper(sign()), id="tampered"),
+        pytest.param(sign(alg="HS256", key="secret" * 6), id="hs256"),
+        pytest.param("not-a-jwt", id="garbage"),
+    ],
+)
+@pytest.mark.parametrize("via", ["header", "bearer"])
+def test_invalid_access_tokens_are_rejected(client, wiki, token, via, caplog):
+    headers = (
+        {"Cf-Access-Jwt-Assertion": token}
+        if via == "header"
+        else {"Authorization": f"Bearer {token}"}
+    )
+    response = mcp_status(client, headers)
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"] == "Bearer"
+    assert response.text == "Unauthorized"
+    assert "Rejected request" in caplog.text
+    assert not wiki.calls
+
+
+@pytest.mark.parametrize("header", ["", "Bearer", "Basic abc", "Bearer \u00e9"])
+def test_missing_token_and_health(client, wiki, header):
     assert client.get("/health").text == "ok"
     assert client.get("/healthz").text == "ok"
     # ASGI accepts UTF-8 header bytes even though httpx disallows non-ASCII strings.
@@ -56,7 +123,59 @@ def test_authentication_and_health(client, wiki, header):
     assert not wiki.calls
 
 
-def test_remote_hosts_and_origins_require_only_bearer_auth(client):
+def test_missing_access_configuration_is_a_server_error(wiki):
+    with TestClient(
+        create_app(replace(wiki.settings, access=None)), base_url="http://localhost"
+    ) as client:
+        assert client.get("/health").text == "ok"
+        response = mcp_status(client, AUTH)
+        assert response.status_code == 500
+        assert "CF_ACCESS_TEAM_DOMAIN" in response.text
+    assert not wiki.calls
+
+
+async def test_keys_are_fetched_and_refreshed_on_rotation(monkeypatch):
+    fetches = []
+    jwks = {"current": public_jwks()}
+
+    async def fake_fetch(issuer):
+        fetches.append(issuer)
+        if jwks["current"] is None:
+            raise httpx.ConnectError("down")
+        return access._import_keys(jwks["current"])
+
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(access, "_fetch_keys", fake_fetch)
+    monkeypatch.setattr(access.time, "monotonic", lambda: clock["now"])
+    access.clear_access_keys()
+    config = access.AccessConfig(ISSUER, ("test-aud-tag",))
+
+    await access.verify_access_jwt(sign(), config)
+    await access.verify_access_jwt(sign(), config)
+    assert fetches == [ISSUER]  # cached
+
+    # A new kid within a minute of the last fetch is not re-fetched.
+    jwks["current"] = public_jwks(OTHER_KEY, kid="k2")
+    with pytest.raises(ValueError, match="unknown signing key"):
+        await access.verify_access_jwt(sign(key=OTHER_KEY, kid="k2"), config)
+    assert len(fetches) == 1
+    clock["now"] += 61
+    await access.verify_access_jwt(sign(key=OTHER_KEY, kid="k2"), config)
+    assert len(fetches) == 2
+
+    # A failed refresh keeps using the cached keys.
+    jwks["current"] = None
+    clock["now"] += 3601
+    await access.verify_access_jwt(sign(key=OTHER_KEY, kid="k2"), config)
+    assert len(fetches) == 3
+
+    # Without cached keys, a failed fetch is an error.
+    access.clear_access_keys()
+    with pytest.raises(ValueError, match="could not fetch"):
+        await access.verify_access_jwt(sign(), config)
+
+
+def test_remote_hosts_and_origins_require_only_access_auth(client):
     headers = {
         "Accept": "application/json, text/event-stream",
         "Host": "mcp.example.com",

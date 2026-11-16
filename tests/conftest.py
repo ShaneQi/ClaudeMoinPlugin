@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from xmlrpc.server import SimpleXMLRPCRequestHandler, SimpleXMLRPCServer
 
 import pytest
+from access_keys import CONFIG, install_keys
 
 from moinmoin_mcp.client import Settings
 
@@ -20,7 +21,7 @@ class Wiki:
 
     @property
     def settings(self):
-        return Settings(self.url, "wiki-user", "wiki-password", "test-access-token")
+        return Settings(self.url, "wiki-user", "wiki-password", CONFIG)
 
     def _dispatch(self, method, params):
         if method == "system.multicall":
@@ -104,6 +105,11 @@ class Wiki:
         else:
             return xc.Fault(400, "Unknown method")
         return True
+
+
+@pytest.fixture(autouse=True)
+def access_keys():
+    install_keys()
 
 
 @pytest.fixture

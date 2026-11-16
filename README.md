@@ -2,8 +2,9 @@
 
 A remote MCP server for MoinMoin 1.9 wikis over XML-RPC v2. Runs as a
 non-root Python container on Google Cloud Run or behind an HTTPS reverse
-proxy. Wiki credentials stay on the server; clients only receive a separate
-bearer token.
+proxy, behind [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/).
+Wiki credentials stay on the server; clients authenticate to Cloudflare
+Access, and the server verifies the Access JWT on every MCP request.
 
 The deployment follows [OFCloudMCP](https://github.com/ShaneQi/OFCloudMCP):
 stateless Streamable HTTP, multi-architecture images in GHCR and Google
@@ -17,8 +18,8 @@ Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
 uv sync --frozen
 cp .env.example .env
 chmod 600 .env
-# Edit .env: set MOIN_URL, ACCESS_TOKEN and, for a private wiki, both credentials.
-# Generate ACCESS_TOKEN with: openssl rand -base64 32
+# Edit .env: set MOIN_URL, CF_ACCESS_TEAM_DOMAIN, CF_ACCESS_AUD and, for a
+# private wiki, both credentials.
 uv run --env-file .env moinmoin-mcp
 ```
 
@@ -27,7 +28,7 @@ to the internet; use Cloud Run's HTTPS URL or a TLS reverse proxy.
 
 - `GET /health` and `/healthz`: unauthenticated liveness checks, return `ok`.
   These do not contact the wiki. Use `check_connection` to check wiki access.
-- `/mcp`: authenticated MCP Streamable HTTP with JSON responses, no sticky
+- `/mcp`: Cloudflare Access-authenticated MCP Streamable HTTP with JSON responses, no sticky
   sessions or persistent disk required.
 
 ## Configuration
@@ -36,7 +37,8 @@ to the internet; use Cloud Run's HTTPS URL or a TLS reverse proxy.
 |---|---|---|
 | `MOIN_URL` | required | Wiki base URL, e.g. `https://wiki.example.com/wiki/`; an existing `?action=xmlrpc2` endpoint also works |
 | `MOIN_USER`, `MOIN_PASSWORD` | empty | Set both for a private wiki, or neither for anonymous wiki access |
-| `ACCESS_TOKEN` | required | Long random bearer token required by every MCP request, even with an anonymous wiki |
+| `CF_ACCESS_TEAM_DOMAIN` | required | Cloudflare Zero Trust team domain, e.g. `myteam.cloudflareaccess.com` (a full `https://` URL or just `myteam` also work). Find it in Zero Trust → Settings → Custom Pages |
+| `CF_ACCESS_AUD` | required | The Access application's AUD tag (Zero Trust → Access → Applications → your app → Overview → "Application Audience (AUD) Tag"); comma-separate several to accept more than one application |
 | `ALLOW_WRITES` | `false` | Set exactly `true` to enable wiki mutations |
 | `PORT` | `8787` | HTTP port; Cloud Run supplies its own `PORT` |
 
@@ -44,8 +46,31 @@ Standard proxy environment variables are honored for outbound wiki requests.
 Configure `SSL_CERT_FILE` if your wiki uses a private certificate authority.
 
 Host and Origin headers are not restricted by the application; SDK DNS
-rebinding protection is disabled. Bearer-token authentication is required
-regardless of the hostname. Use HTTPS and keep `ACCESS_TOKEN` secret.
+rebinding protection is disabled. A valid Cloudflare Access JWT is required
+regardless of the hostname.
+
+## Authentication (Cloudflare Access)
+
+Put the server behind a Cloudflare Access self-hosted application (via a
+Cloudflare Tunnel or a proxied DNS record). For every request Access lets
+through, Cloudflare adds a signed JWT in the `Cf-Access-Jwt-Assertion`
+header. The server verifies that JWT itself on every MCP request, so requests
+that reach the origin directly (the Cloud Run `run.app` URL, a VPS IP, ...)
+without passing through Access are refused:
+
+- The token is read from `Cf-Access-Jwt-Assertion`, or, if absent, from
+  `Authorization: Bearer <jwt>` (same checks).
+- The signature must be RS256 and match one of the team's public keys from
+  `https://<team>/cdn-cgi/access/certs`, selected by `kid`. Keys are cached for
+  an hour; an unknown `kid` triggers a re-fetch at most once a minute (key
+  rotation). If a refresh fails, cached keys keep working.
+- `iss` must equal `https://<CF_ACCESS_TEAM_DOMAIN>`, `aud` must contain one of
+  `CF_ACCESS_AUD`, and `exp`/`nbf` are checked with 60 seconds of leeway.
+
+A missing or invalid token gets `401` with `WWW-Authenticate: Bearer`; the
+reason is logged server-side only. If `CF_ACCESS_TEAM_DOMAIN` or
+`CF_ACCESS_AUD` is unset, the server starts (and logs an error) but answers
+every MCP request with `500`. `/health` and `/healthz` stay unauthenticated.
 
 XML-RPC must be enabled on the wiki: remove `xmlrpc` from `actions_excluded`
 in `wikiconfig.py`. The wiki must be reachable from the container, including
@@ -54,16 +79,21 @@ private wiki; XML-RPC sends its credentials to the configured endpoint.
 
 ## MCP client setup
 
-Use an MCP client that supports HTTP request headers:
+MCP clients cannot complete an interactive Access login, so create an Access
+[service token](https://developers.cloudflare.com/cloudflare-one/identity/service-tokens/)
+(Zero Trust → Access → Service Auth → Service Tokens) and add a policy with
+the **Service Auth** action for it to the Access application. Then use an MCP
+client that supports HTTP request headers:
 
 ```json
 {
   "mcpServers": {
     "moinmoin": {
       "type": "http",
-      "url": "https://YOUR-SERVICE.run.app/mcp",
+      "url": "https://mcp.example.com/mcp",
       "headers": {
-        "Authorization": "Bearer YOUR_ACCESS_TOKEN"
+        "CF-Access-Client-Id": "YOUR_CLIENT_ID.access",
+        "CF-Access-Client-Secret": "YOUR_CLIENT_SECRET"
       }
     }
   }
@@ -71,17 +101,19 @@ Use an MCP client that supports HTTP request headers:
 ```
 
 This is the Claude Code HTTP configuration shape; other clients may use a
-different key for the transport. Configure the token through your client's
-secret storage rather than committing it. This server uses static bearer
-authentication, not OAuth; clients that only support OAuth connectors need
-an authentication gateway.
+different key for the transport. `mcp.example.com` is the hostname protected
+by Access; Access exchanges the service token for the JWT the server checks.
+Configure the client secret through your client's secret storage rather than
+committing it. Clients that only support OAuth connectors need an
+authentication gateway.
 
 Check connectivity with a valid MCP initialization request:
 
 ```sh
-curl https://YOUR-SERVICE.run.app/health
-curl https://YOUR-SERVICE.run.app/mcp \
-  -H "Authorization: Bearer $ACCESS_TOKEN" \
+curl https://mcp.example.com/health
+curl https://mcp.example.com/mcp \
+  -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+  -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"smoke-test","version":"1"}}}'
@@ -138,7 +170,8 @@ docker compose -f compose.yml up -d --build
 # Or use the published ghcr.io/shaneqi/moinmoinmcp:latest image.
 ```
 
-Compose binds `127.0.0.1:8787`; terminate HTTPS in a reverse proxy.
+Compose binds `127.0.0.1:8787`; expose it through a Cloudflare Tunnel or a
+reverse proxy behind Cloudflare Access.
 The container is stateless and needs no volumes. New GHCR packages may be
 private: make the package public or authenticate Docker with `read:packages`.
 
@@ -167,7 +200,7 @@ gcloud artifacts repositories create "$REPOSITORY" --project "$PROJECT_ID" \
   --location "$REGION" --repository-format=docker
 ```
 
-Create a dedicated runtime identity and three secrets. Supply existing
+Create a dedicated runtime identity and two secrets. Supply existing
 restricted files containing only the values (no trailing newlines); never
 put credential values in workflow YAML, Docker build arguments or source:
 
@@ -177,10 +210,8 @@ gcloud secrets create moinmoin-user --project "$PROJECT_ID" \
   --replication-policy=automatic --data-file=/secure/path/wiki-user
 gcloud secrets create moinmoin-password --project "$PROJECT_ID" \
   --replication-policy=automatic --data-file=/secure/path/wiki-password
-gcloud secrets create moinmoin-access-token --project "$PROJECT_ID" \
-  --replication-policy=automatic --data-file=/secure/path/access-token
 
-for SECRET in moinmoin-user moinmoin-password moinmoin-access-token; do
+for SECRET in moinmoin-user moinmoin-password; do
   gcloud secrets add-iam-policy-binding "$SECRET" --project "$PROJECT_ID" \
     --member="serviceAccount:$RUNTIME_SA" --role=roles/secretmanager.secretAccessor
 done
@@ -199,20 +230,25 @@ gcloud run deploy "$SERVICE" --project "$PROJECT_ID" --region "$REGION" \
   --cpu 1 --memory 512Mi --concurrency 40 --timeout 300 \
   --min-instances 0 --max-instances 3 \
   --set-env-vars 'MOIN_URL=https://wiki.example.com/,ALLOW_WRITES=false' \
-  --set-secrets 'MOIN_USER=moinmoin-user:latest,MOIN_PASSWORD=moinmoin-password:latest,ACCESS_TOKEN=moinmoin-access-token:latest'
+  --set-env-vars 'CF_ACCESS_TEAM_DOMAIN=myteam.cloudflareaccess.com,CF_ACCESS_AUD=YOUR_AUD_TAG' \
+  --set-secrets 'MOIN_USER=moinmoin-user:latest,MOIN_PASSWORD=moinmoin-password:latest'
 
 SERVICE_URL=$(gcloud run services describe "$SERVICE" --project "$PROJECT_ID" \
   --region "$REGION" --format='value(status.url)')
 curl "$SERVICE_URL/health"
 ```
 
-`--allow-unauthenticated` disables Google's IAM login requirement so ordinary
-MCP clients can connect. **The application still requires `ACCESS_TOKEN` on
-every MCP request.** Health checks are intentionally public. If your org
-forbids public Cloud Run services, use an approved authenticated gateway.
+The service can be `--allow-unauthenticated` at the Cloud Run layer because
+the container itself enforces Cloudflare Access: **every MCP request,
+including one sent straight to the `run.app` URL, must carry a valid Access
+JWT.** Point Cloudflare (a Tunnel or a proxied custom domain) at the service
+and protect that hostname with the Access application whose AUD tag you set.
+The AUD tag and team domain are not secrets. Health checks are intentionally
+public. If your org forbids public Cloud Run services, use an approved
+authenticated gateway.
 
 For an anonymous wiki, omit the two wiki credential secrets and their
-bindings; keep `ACCESS_TOKEN`. Secret references above use `latest`; changing
+bindings. Secret references above use `latest`; changing
 an environment-injected secret requires deploying a new revision to refresh
 running instances. Pin numeric secret versions if you need reproducible
 rollbacks.
