@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
+from moinmoin_mcp.access import AccessConfig, access_config
+
 if TYPE_CHECKING:
     from _typeshed import SizedBuffer
 
@@ -19,7 +21,7 @@ class Settings:
     url: str
     username: str
     password: str
-    access_token: str
+    access: AccessConfig | None
     allow_writes: bool = False
     port: int = 8787
 
@@ -27,9 +29,6 @@ class Settings:
     def from_env(cls) -> Settings:
         url = os.environ.get("MOIN_URL", "").strip()
         endpoint(url)
-        token = os.environ.get("ACCESS_TOKEN", "")
-        if not token.strip():
-            raise ValueError("ACCESS_TOKEN must be set to a long random bearer token")
         username = os.environ.get("MOIN_USER", "")
         password = os.environ.get("MOIN_PASSWORD", "")
         if bool(username) != bool(password):
@@ -42,7 +41,7 @@ class Settings:
         port = int(os.environ.get("PORT", "8787"))
         if not 1 <= port <= 65535:
             raise ValueError("PORT must be between 1 and 65535")
-        return cls(url, username, password, token, writes == "true", port)
+        return cls(url, username, password, access_config(os.environ), writes == "true", port)
 
 
 def endpoint(url: str) -> str:

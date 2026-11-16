@@ -1,5 +1,6 @@
 import pytest
 
+from moinmoin_mcp.access import AccessConfig, access_config
 from moinmoin_mcp.client import Settings, endpoint, page_url
 
 
@@ -9,7 +10,8 @@ def clean_env(monkeypatch):
         "MOIN_URL",
         "MOIN_USER",
         "MOIN_PASSWORD",
-        "ACCESS_TOKEN",
+        "CF_ACCESS_TEAM_DOMAIN",
+        "CF_ACCESS_AUD",
         "ALLOW_WRITES",
         "PORT",
     ):
@@ -18,7 +20,6 @@ def clean_env(monkeypatch):
 
 def test_environment_configuration(monkeypatch):
     monkeypatch.setenv("MOIN_URL", "https://wiki.example/wiki")
-    monkeypatch.setenv("ACCESS_TOKEN", "test-token")
     monkeypatch.setenv("PORT", "8080")
     settings = Settings.from_env()
     assert settings.port == 8080
@@ -36,7 +37,6 @@ def test_environment_configuration(monkeypatch):
         ("MOIN_URL", "", "MOIN_URL"),
         ("MOIN_URL", "file:///tmp/wiki", "MOIN_URL"),
         ("MOIN_URL", "https://user:password@wiki.example/", "MOIN_URL"),
-        ("ACCESS_TOKEN", "", "ACCESS_TOKEN"),
         ("MOIN_USER", "missing-password", "both"),
         ("MOIN_PASSWORD", "missing-user", "both"),
         ("ALLOW_WRITES", "yes", "ALLOW_WRITES"),
@@ -45,7 +45,6 @@ def test_environment_configuration(monkeypatch):
 )
 def test_invalid_configuration_fails_at_startup(monkeypatch, key, value, message):
     monkeypatch.setenv("MOIN_URL", "https://wiki.example/")
-    monkeypatch.setenv("ACCESS_TOKEN", "test-token")
     monkeypatch.setenv(key, value)
     with pytest.raises(ValueError, match=message):
         Settings.from_env()
@@ -93,3 +92,35 @@ def test_xmlrpc_endpoint(url, expected):
 )
 def test_page_urls_preserve_wiki_base_and_encode_page_names(base, page, version, expected):
     assert page_url(base, page, version) == expected
+
+
+def test_access_configuration_is_optional_at_startup(monkeypatch):
+    monkeypatch.setenv("MOIN_URL", "https://wiki.example/")
+    assert Settings.from_env().access is None
+    monkeypatch.setenv("CF_ACCESS_TEAM_DOMAIN", "myteam")
+    monkeypatch.setenv("CF_ACCESS_AUD", "aud1")
+    assert Settings.from_env().access == AccessConfig(
+        "https://myteam.cloudflareaccess.com", ("aud1",)
+    )
+
+
+@pytest.mark.parametrize(
+    ("team", "aud", "expected"),
+    [
+        (
+            "myteam.cloudflareaccess.com",
+            "a",
+            AccessConfig("https://myteam.cloudflareaccess.com", ("a",)),
+        ),
+        (
+            "https://myteam.cloudflareaccess.com/",
+            " a , b ,",
+            AccessConfig("https://myteam.cloudflareaccess.com", ("a", "b")),
+        ),
+        ("myteam", "a", AccessConfig("https://myteam.cloudflareaccess.com", ("a",))),
+        ("", "a", None),
+        ("myteam", " , ", None),
+    ],
+)
+def test_access_config_normalization(team, aud, expected):
+    assert access_config({"CF_ACCESS_TEAM_DOMAIN": team, "CF_ACCESS_AUD": aud}) == expected

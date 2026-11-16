@@ -1,10 +1,8 @@
-"""Authenticated, stateless Streamable HTTP MCP server."""
+"""Cloudflare Access-authenticated, stateless Streamable HTTP MCP server."""
 
 import base64
 import binascii
 import datetime as dt
-import hashlib
-import hmac
 import logging
 import urllib.error
 import xml.parsers.expat
@@ -21,32 +19,13 @@ from mcp.types import ToolAnnotations
 from pydantic import Field, TypeAdapter, ValidationError
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse, Response
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp
 
+from moinmoin_mcp.access import CloudflareAccessAuth
 from moinmoin_mcp.client import Moin, Settings, WikiError, jsonable, page_url
 
 logger = logging.getLogger(__name__)
 Revision = Annotated[int, Field(ge=1)]
-
-
-class BearerAuth:
-    def __init__(self, app: ASGIApp, token: str) -> None:
-        self.app = app
-        self.digest = hashlib.sha256(token.encode()).digest()
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] == "http" and scope["path"] not in ("/health", "/healthz"):
-            header = Request(scope).headers.get("authorization", "")
-            scheme, _, token = header.partition(" ")
-            if scheme.lower() != "bearer" or not hmac.compare_digest(
-                hashlib.sha256(token.encode()).digest(), self.digest
-            ):
-                response = PlainTextResponse(
-                    "Unauthorized", status_code=401, headers={"WWW-Authenticate": "Bearer"}
-                )
-                await response(scope, receive, send)
-                return
-        await self.app(scope, receive, send)
 
 
 def create_server(settings: Settings) -> FastMCP:
@@ -285,7 +264,7 @@ def create_server(settings: Settings) -> FastMCP:
 
 def create_app(settings: Settings | None = None) -> ASGIApp:
     settings = settings or Settings.from_env()
-    return BearerAuth(create_server(settings).streamable_http_app(), settings.access_token)
+    return CloudflareAccessAuth(create_server(settings).streamable_http_app(), settings.access)
 
 
 def main() -> None:
@@ -294,6 +273,11 @@ def main() -> None:
         settings = Settings.from_env()
     except ValueError as exc:
         raise SystemExit(f"Configuration error: {exc}") from exc
+    if settings.access is None:
+        logger.error(
+            "CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_AUD are not set; every MCP request will fail "
+            "with HTTP 500 until they are configured"
+        )
     uvicorn.run(create_app(settings), host="0.0.0.0", port=settings.port)
 
 
