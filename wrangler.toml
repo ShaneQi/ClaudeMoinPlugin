@@ -1,0 +1,14 @@
+name = "moinmoin-mcp"
+main = "src/index.js"
+compatibility_date = "2025-11-01"
+
+# Keep the moinmoin-mcp.<subdomain>.workers.dev URL on. Routes and custom
+# domains (moinmoin-mcp.shaneqi.com) are managed in the dashboard.
+workers_dev = true
+
+# Bindings are managed in the Cloudflare dashboard, not here: the variables
+# (MOIN_URL, ALLOW_WRITES, CF_ACCESS_TEAM_DOMAIN, CF_ACCESS_AUD) and the
+# secrets (MOIN_USER, MOIN_PASSWORD). keep_bindings tells the upload API to
+# keep the existing bindings of these types, so a deploy only replaces the code.
+[unsafe.metadata]
+keep_bindings = ["plain_text", "json", "secret_text", "secret_key"]
