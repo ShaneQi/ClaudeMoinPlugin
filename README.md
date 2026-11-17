@@ -43,13 +43,14 @@ also verifies the Access JWT itself on every `/mcp` request, from
 `Cf-Access-Jwt-Assertion` (or `Authorization: Bearer <jwt>`): RS256 against
 `https://<team>/cdn-cgi/access/certs`, issuer, audience, and `exp`/`nbf` with
 60 s leeway. A missing or invalid token gets `401`; the reason is only logged,
-as `access denied: …`. So the `workers.dev` URL refuses requests that didn't
-come through Access. `/health` and `/healthz` stay open.
+as `access denied: …`. The `workers.dev` and preview URLs are off
+(`wrangler.toml`), so the custom domain behind Access is the only way in. `/health` and `/healthz` stay open.
 
 ## Deploy
 
 Every push to `main` deploys with `wrangler deploy`
 (`.github/workflows/deploy.yml`). It needs the repository secrets
 `CLOUDFLARE_API_TOKEN` (the "Edit Cloudflare Workers" template) and
-`CLOUDFLARE_ACCOUNT_ID`. Custom domains and routes are managed in the
-dashboard.
+`CLOUDFLARE_ACCOUNT_ID`. A deploy only replaces the code: variables and
+secrets stay (`keep_bindings`), the custom domain is managed in the dashboard,
+and `workers.dev` and preview URLs stay off.

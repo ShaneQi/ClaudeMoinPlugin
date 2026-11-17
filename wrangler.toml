@@ -2,9 +2,11 @@ name = "moinmoin-mcp"
 main = "src/index.js"
 compatibility_date = "2025-11-01"
 
-# Keep the moinmoin-mcp.<subdomain>.workers.dev URL on. Routes and custom
-# domains (moinmoin-mcp.shaneqi.com) are managed in the dashboard.
-workers_dev = true
+# Only the custom domain (moinmoin-mcp.shaneqi.com) serves the Worker. Every
+# deploy keeps the workers.dev URL and preview URLs off. No routes are listed
+# here, so the custom domain set up in the dashboard is left as it is.
+workers_dev = false
+preview_urls = false
 
 # Bindings are managed in the Cloudflare dashboard, not here: the variables
 # (MOIN_URL, ALLOW_WRITES, CF_ACCESS_TEAM_DOMAIN, CF_ACCESS_AUD) and the
