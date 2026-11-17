@@ -68,9 +68,9 @@ without passing through Access are refused:
   `CF_ACCESS_AUD`, and `exp`/`nbf` are checked with 60 seconds of leeway.
 
 A missing or invalid token gets `401` with `WWW-Authenticate: Bearer`; the
-reason is logged server-side only. If `CF_ACCESS_TEAM_DOMAIN` or
-`CF_ACCESS_AUD` is unset, the server starts (and logs an error) but answers
-every MCP request with `500`. `/health` and `/healthz` stay unauthenticated.
+reason is only logged, as `access denied: …`. The server exits at startup if
+`CF_ACCESS_TEAM_DOMAIN` or `CF_ACCESS_AUD` is unset. `/health` and `/healthz`
+stay unauthenticated.
 
 XML-RPC must be enabled on the wiki: remove `xmlrpc` from `actions_excluded`
 in `wikiconfig.py`. The wiki must be reachable from the container, including

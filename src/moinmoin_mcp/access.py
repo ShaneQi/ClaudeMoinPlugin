@@ -168,13 +168,14 @@ class CloudflareAccessAuth:
             return
         if self.config is None:
             response = PlainTextResponse(
-                "Server misconfigured: CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_AUD must be set",
+                "Server is missing its Cloudflare Access settings "
+                "(CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_AUD).",
                 status_code=500,
             )
             await response(scope, receive, send)
             return
         token = access_token(Request(scope))
-        reason = "no token"
+        reason = "no Cloudflare Access token"
         if token:
             try:
                 await verify_access_jwt(token, self.config)
@@ -183,7 +184,7 @@ class CloudflareAccessAuth:
             else:
                 await self.app(scope, receive, send)
                 return
-        logger.warning("Rejected request to %s: %s", scope["path"], reason)
+        logger.warning("access denied: %s (%s)", reason, scope["path"])
         response = PlainTextResponse(
             "Unauthorized", status_code=401, headers={"WWW-Authenticate": "Bearer"}
         )

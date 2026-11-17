@@ -124,3 +124,12 @@ def test_access_configuration_is_optional_at_startup(monkeypatch):
 )
 def test_access_config_normalization(team, aud, expected):
     assert access_config({"CF_ACCESS_TEAM_DOMAIN": team, "CF_ACCESS_AUD": aud}) == expected
+
+
+def test_server_exits_at_startup_without_access_configuration(monkeypatch):
+    from moinmoin_mcp import server
+
+    monkeypatch.setenv("MOIN_URL", "https://wiki.example/")
+    monkeypatch.setattr(server.uvicorn, "run", lambda *a, **k: pytest.fail("server started"))
+    with pytest.raises(SystemExit, match="CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_AUD"):
+        server.main()
