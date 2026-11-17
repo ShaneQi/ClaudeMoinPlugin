@@ -274,9 +274,9 @@ def main() -> None:
     except ValueError as exc:
         raise SystemExit(f"Configuration error: {exc}") from exc
     if settings.access is None:
-        logger.error(
-            "CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_AUD are not set; every MCP request will fail "
-            "with HTTP 500 until they are configured"
+        raise SystemExit(
+            "error: CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_AUD must both be set (Cloudflare Access "
+            "team domain and the application's AUD tag)."
         )
     uvicorn.run(create_app(settings), host="0.0.0.0", port=settings.port)
 

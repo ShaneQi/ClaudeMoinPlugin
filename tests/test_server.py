@@ -108,7 +108,7 @@ def test_invalid_access_tokens_are_rejected(client, wiki, token, via, caplog):
     assert response.status_code == 401
     assert response.headers["www-authenticate"] == "Bearer"
     assert response.text == "Unauthorized"
-    assert "Rejected request" in caplog.text
+    assert "access denied: " in caplog.text
     assert not wiki.calls
 
 
