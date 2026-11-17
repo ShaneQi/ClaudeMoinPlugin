@@ -1,13 +1,4 @@
-.in_use/
 .DS_Store
-__pycache__/
-.venv/
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
-.env
-.env.*
-!.env.example
-dist/
-*.egg-info/
-gha-creds-*.json
+node_modules/
+.wrangler/
+.dev.vars
